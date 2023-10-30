@@ -1,17 +1,18 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config()
-const jwt = require('jsonwebtoken')
 const cookieParser = require('cookie-parser')
+const jwt = require('jsonwebtoken')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express()
 const port = process.env.PORT || 5000; 
 
 //middelwair
 app.use(cors({
-  origin: ['http://localhost:5173'],
-  credentials: true
+    origin: ['http://localhost:5173'],
+    credentials: true
 }))
+
 app.use(express.json())
 app.use(cookieParser())
 
@@ -30,24 +31,27 @@ const client = new MongoClient(uri, {
   }
 });
 
-  const verifyToken = async (req, res, next) => {
-    const token = req.cookies?.token
-    console.log('value of token in middielware', token);
-    if(!token){
-      return res.status(401).send({message: "not authorize"})
-    }
-
-    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-      if(err) {
-        console.log(err);
-        return res.status(401).send({message: "Unauthorouz"}) 
-      }
-      console.log("value in the", decoded );
-      req.user = decoded; 
-      next()
-    })
-    
+const tokenVerify = (req, res, next) => {
+  const token = req.cookies?.token; 
+  console.log(token);
+  if(!token){
+    return res.status(404).send("unauthorize")
+  } else {
+         jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded)=> {
+          if(err){
+            console.log(err);
+            // return res.status(402).send({message: 'unauthorize'})
+            console.error('JWT verification failed:', err);
+          } else {
+            console.log("this token is valid", decoded);
+            req.users = decoded
+            next()
+          }
+        })
   }
+  
+}
+
 
 
 async function run() {
@@ -57,22 +61,21 @@ async function run() {
 
     const serviceCollection = client.db('carDoctor').collection('services')
     const checkoutCollection = client.db('carDoctor').collection('checkout')
-
+    const newCollection = client.db('carDoctor').collection('newServices')
 
 
     app.post('/jwt', async (req, res) => {
       const user = req.body
-      console.log(user);
+
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
+      
       res
       .cookie('token', token, {
-        httpOnly: true, 
-        secure: false, 
+          httpOnly: true, 
+          secure: false
       })
       .send({success: true})
     })
-
-
 
 
     /// services related api
@@ -85,23 +88,20 @@ async function run() {
     app.get ('/services/:id', async (req, res) => {
         const id = req.params.id; 
         const quary = {_id: new ObjectId (id)};
-
-        const options = {
-            projection: { title: 1, price: 1, img: 1, service_id: 1  },
-          };
-
-        const result = await serviceCollection.findOne(quary, options); 
+        // const options = {
+        //     projection: { title: 1, price: 1, img: 1, service_id: 1  },
+        //   };
+        const result = await serviceCollection.findOne(quary); 
         res.send(result)
     } )
 
     /// bookinges
 
-    app.get('/checkout', verifyToken, async (req, res) => {
-        console.log(req.query.email);
-        // console.log("token", req.cookies.token);
-        console.log('from valid token', req.user);
-        if(req.query.email !== req.user.email){
-            return res.status(403).send({message: 'forbidden'})
+    app.get('/checkout', tokenVerify,  async (req, res) => {
+        // console.log(req.query.email);
+        // console.log(req.users.email);
+        if(req.query.email !== req.users.email){
+          return res.status(404).send({message: "email in valid"})
         }
         let query = {}
         if(req.query?.email){
@@ -150,6 +150,44 @@ async function run() {
         const query = {_id: new ObjectId(id)}
         const result = await serviceCollection.findOne(query)
         res.send(result)
+    })
+
+
+    app.post('/services', async (req, res) => {
+      const addservices = req.body; 
+      console.log(addservices); 
+      const result = await serviceCollection.insertOne(addservices)
+      res.send(result)
+    })
+
+
+    app.delete('/services/:id', async (req, res) => {
+      const id = req.params.id;
+      const quary = {_id: new ObjectId(id)} 
+      const result = await serviceCollection.deleteOne(quary)
+      res.send(res)
+    })
+    app.put('/services/:id', async (req, res) => {
+      const id = req.params.id;
+      const body = req.body; 
+      console.log(id, body);
+      const filter= {_id: new ObjectId(id)} 
+      const options = { upsert: true };
+
+      const updateDoc = {
+        $set: {
+          ...body
+        },
+      };
+      const result = await serviceCollection.updateOne(filter, updateDoc, options)
+      res.send(result)
+    })
+
+    app.post('/newServices', async (req, res) => {
+        const newServices = req.body; 
+        console.log(newServices);
+        const result = await newCollection.insertOne(newServices)
+        res.send(result); 
     })
 
 
