@@ -1,20 +1,19 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config()
-const cookieParser = require('cookie-parser')
 const jwt = require('jsonwebtoken')
+const cookiePerser = require("cookie-parser"); 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express()
 const port = process.env.PORT || 5000; 
 
 //middelwair
 app.use(cors({
-    origin: ['http://localhost:5173'],
-    credentials: true
+  origin: ['http://localhost:5173'],
+  credentials: true
 }))
-
 app.use(express.json())
-app.use(cookieParser())
+app.use(cookiePerser())
 
 
 
@@ -31,25 +30,37 @@ const client = new MongoClient(uri, {
   }
 });
 
-const tokenVerify = (req, res, next) => {
-  const token = req.cookies?.token; 
-  console.log(token);
-  if(!token){
-    return res.status(404).send("unauthorize")
-  } else {
-         jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded)=> {
-          if(err){
-            console.log(err);
-            // return res.status(402).send({message: 'unauthorize'})
-            console.error('JWT verification failed:', err);
-          } else {
-            console.log("this token is valid", decoded);
-            req.users = decoded
-            next()
-          }
-        })
+
+
+
+/// middelware
+
+const logger = (req, res, next) => {
+  console.log("loginfo", req.url);
+  next()
+}
+
+
+
+const veryfayToken = (req, res, next) => {
+  const token = req?.cookies.token; 
+  console.log("token in the ", token);
+  if(!token) {
+   return res.status(401).send({message: 'unauthorize access'})
+  }
+  else {
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+      if(err){
+       return res.status(401).send({message: "unauthorize"})
+      }
+      else {
+        req.user = decoded 
+        next()
+      }
+    } )
   }
   
+
 }
 
 
@@ -63,19 +74,28 @@ async function run() {
     const checkoutCollection = client.db('carDoctor').collection('checkout')
     const newCollection = client.db('carDoctor').collection('newServices')
 
+    //auth relate
 
     app.post('/jwt', async (req, res) => {
-      const user = req.body
-
-      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
-      
-      res
-      .cookie('token', token, {
+        const user = req.body; 
+        console.log("user", user);
+        const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
+        res
+          .cookie('token', token,  {
           httpOnly: true, 
-          secure: false
-      })
-      .send({success: true})
+          secure: false, 
+        }) 
+        .send(token)
     })
+
+
+
+    app.post('/logout', async (req, res) => {
+        const user = req.body; 
+        console.log("loggin Out", user);
+        res.clearCookie('token', {maxAge: 0}).send({success: true})
+    })
+
 
 
     /// services related api
@@ -93,15 +113,16 @@ async function run() {
         //   };
         const result = await serviceCollection.findOne(quary); 
         res.send(result)
-    } )
+    })
 
     /// bookinges
 
-    app.get('/checkout', tokenVerify,  async (req, res) => {
+    app.get('/checkout', veryfayToken,  async (req, res) => {
         // console.log(req.query.email);
-        // console.log(req.users.email);
-        if(req.query.email !== req.users.email){
-          return res.status(404).send({message: "email in valid"})
+        // console.log(req.cookies.token);
+        console.log("token woner", req.user);
+        if(req.user.email !== req.query.email){
+          return res.send({message: "foebidden user"})
         }
         let query = {}
         if(req.query?.email){
